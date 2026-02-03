@@ -7,6 +7,8 @@ ENV SSH_VERSION="1:10.0p1-7"
 
 ENV BORG_BASE_DIR=/borg
 
+# TODO Setup keep-alive https://borgbackup.readthedocs.io/en/stable/usage/serve.html#ssh-configuration
+
 RUN apt-get update && \
     apt-get install -y \
     borgbackup="${BORGBACKUP_VERSION}" openssh-client="${SSH_VERSION}" && \
