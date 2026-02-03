@@ -9,5 +9,5 @@ ENV BORG_BASE_DIR=/borg
 
 RUN apt-get update && \
     apt-get install -y \
-    borgbackup="${BORGBACKUP_VERSION}" openssh-client="${SSH_VERSION}"" && \
+    borgbackup="${BORGBACKUP_VERSION}" openssh-client="${SSH_VERSION}" && \
     apt-get clean
