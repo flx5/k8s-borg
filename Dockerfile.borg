@@ -2,10 +2,12 @@ FROM debian:trixie-slim
 
 # renovate: suite=trixie depName=borgbackup
 ENV BORGBACKUP_VERSION="1.4.0-5"
+# renovate: suite=trixie depName=openssh-client
+ENV SSH_VERSION="1:10.0p1-7"
 
 ENV BORG_BASE_DIR=/borg
 
 RUN apt-get update && \
     apt-get install -y \
-    borgbackup="${BORGBACKUP_VERSION}" && \
+    borgbackup="${BORGBACKUP_VERSION}" openssh-client="${SSH_VERSION}"" && \
     apt-get clean
