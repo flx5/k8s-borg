@@ -1,0 +1,9 @@
+FROM debian:trixie
+
+# renovate: suite=trixie depName=borgbackup
+ENV BORGBACKUP_VERSION="1.4.0-5"
+
+RUN apt-get update && \
+    apt-get install -y \
+    borgbackup="${BORGBACKUP_VERSION}" && \
+    apt-get clean
