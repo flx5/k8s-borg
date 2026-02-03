@@ -35,7 +35,7 @@ with client.ApiClient(configuration) as api_client:
     app_expose = backup.expose_snapshot(app_snapshot, namespace)
     data_expose = backup.expose_snapshot(data_snapshot, namespace)
 
-    image = "busybox" # TODO Borg
+    image = "ghcr.io/flx5/k8s-borg/borgbackup:sha256-cb33495ec8062f14de601bf2ff2038f2f0ae1c38c5f93f2b0246332793df7bdf.sig"
 
     command = [
         "id"
@@ -48,6 +48,11 @@ with client.ApiClient(configuration) as api_client:
             read_only=True
         ),
         client.V1VolumeMount(
+            name="borg",
+            mount_path="/borg",
+            read_only=True
+        ),
+        client.V1VolumeMount(
             name=app_expose,
             mount_path="/data/app",
             read_only=True
@@ -57,17 +62,18 @@ with client.ApiClient(configuration) as api_client:
             mount_path="/data/data",
             read_only=True
         ),
-        # TODO Borg cache
     ]
 
     volumes = [
         client.V1Volume(name="scratch",
                         persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name=scratch_volume, read_only=True)),
+        client.V1Volume(name="borg",
+                        persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name="borg-cache",
+                                                                                           read_only=True)),
         client.V1Volume(name=app_expose,
                         persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name=app_expose, read_only=True)),
         client.V1Volume(name=data_expose,
                         persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name=data_expose, read_only=True)),
-        # TODO Borg Cache
     ]
 
     job = jobs.create_job_object(f'backup-borg', image, command, volume_mounts, volumes, env=[])
@@ -76,7 +82,3 @@ with client.ApiClient(configuration) as api_client:
     backup.delete_owned_pvcs(namespace)
     backup.delete_owned_snapshots(namespace)
     jobs.delete_owned_jobs(namespace)
-    # TODO Expose snapshots with pvc
-    # TODO Run borg with volumes and cache volume
-    # TODO Delete snapshots, expose-pvcs, jobs
-
