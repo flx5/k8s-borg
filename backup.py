@@ -3,7 +3,10 @@ from kubernetes.client import CoreV1Api
 from kubernetes.stream import stream
 from kubernetes.watch import watch
 
-BACKUP_OWNER_LABEL = "flx5.backup/owner"
+from job import BackupJob
+from labels import BACKUP_OWNER_LABEL
+from postgres import PostgresBackup
+
 
 class SnapshotInfo:
     def __init__(self, name, size, storage_class):
@@ -11,24 +14,32 @@ class SnapshotInfo:
         self.size = size
         self.storage_class = storage_class
 
+
+class ExposedSnapshotPvc:
+    def __init__(self, pvc_name, snapshot: SnapshotInfo):
+        self.pvc_name = pvc_name
+        self.snapshot = snapshot
+
 class Backup:
-    def __init__(self, apiClient, owner):
-        self.client = apiClient
-        self.core_v1: CoreV1Api = client.CoreV1Api(apiClient)
-        self.apps_v1 = client.AppsV1Api(apiClient)
-        self.custom_api = client.CustomObjectsApi(apiClient)
+    def __init__(self, api_client, owner, namespace):
+        self.client = api_client
+        self.core_v1: CoreV1Api = client.CoreV1Api(api_client)
+        self.apps_v1 = client.AppsV1Api(api_client)
+        self.custom_api = client.CustomObjectsApi(api_client)
         self.owner = owner
+        self.namespace = namespace
+        self.jobs = BackupJob(api_client, owner, namespace)
 
 
 
-    def exec_in_single_deployment_pod(self, deployment_name, command, namespace="default"):
+    def exec_in_single_deployment_pod(self, deployment_name, command):
         # 1. Get the Deployment's label selector
-        deployment = self.apps_v1.read_namespaced_deployment(name=deployment_name, namespace=namespace)
+        deployment = self.apps_v1.read_namespaced_deployment(name=deployment_name, namespace=self.namespace)
         selector = deployment.spec.selector.match_labels
         selector_str = self.selector_to_query(selector)
 
         # 2. List pods matching the selector
-        pods = self.core_v1.list_namespaced_pod(namespace=namespace, label_selector=selector_str)
+        pods = self.core_v1.list_namespaced_pod(namespace=self.namespace, label_selector=selector_str)
 
         if not pods.items:
             print(f"No pods found for deployment: {deployment_name}")
@@ -41,7 +52,7 @@ class Backup:
         # 4. Execute the command
         resp = stream(self.core_v1.connect_get_namespaced_pod_exec,
                       target_pod,
-                      namespace,
+                      self.namespace,
                       command=command,
                       stderr=True, stdin=False,
                       stdout=True, tty=False)
@@ -52,12 +63,12 @@ class Backup:
         selector_str = ",".join([f"{k}={v}" for k, v in selector.items()])
         return selector_str
 
-    def delete_owned_snapshots(self, namespace="default"):
+    def delete_owned_snapshots(self):
         group = "snapshot.storage.k8s.io"
         version = "v1"
         response = self.custom_api.delete_collection_namespaced_custom_object(group=group,
             version=version,
-            namespace=namespace,
+            namespace=self.namespace,
             plural="volumesnapshots",
             label_selector=f'{BACKUP_OWNER_LABEL}={self.owner}')
 
@@ -65,16 +76,19 @@ class Backup:
 
         print(f"Deleted snapshots {deleted_snapshots}")
 
-    def delete_owned_pvcs(self, namespace="default"):
-        response = self.core_v1.delete_collection_namespaced_persistent_volume_claim(
-            namespace=namespace,
+    def delete_owned_pvcs(self):
+        self.core_v1.delete_collection_namespaced_persistent_volume_claim(
+            namespace=self.namespace,
             label_selector=f'{BACKUP_OWNER_LABEL}={self.owner}')
 
-    def create_snapshot_and_wait(self, pvc_name, namespace="default", snapshot_class=None):
-        snapshot = self.create_snapshot(pvc_name, namespace, snapshot_class)
-        self.wait_for_snapshot(snapshot, namespace)
+    def create_snapshot_and_wait(self, pvc_name, snapshot_class=None):
+        snapshot = self.create_snapshot(pvc_name, snapshot_class)
+        self.wait_for_snapshot(snapshot)
 
-    def create_snapshot(self, pvc_name, namespace="default", snapshot_class=None) -> SnapshotInfo:
+    def create_snapshots(self, pvc_names: dict[str, str], snapshot_class=None) -> dict[str, SnapshotInfo]:
+        return { name : self.create_snapshot(pvc_name, snapshot_class) for name, pvc_name in pvc_names.items() }
+
+    def create_snapshot(self, pvc_name: str, snapshot_class=None) -> SnapshotInfo:
         group = "snapshot.storage.k8s.io"
         version = "v1"
 
@@ -97,23 +111,27 @@ class Backup:
         snapshot = self.custom_api.create_namespaced_custom_object(
             group=group,
             version=version,
-            namespace=namespace,
+            namespace=self.namespace,
             plural="volumesnapshots",
             body=snapshot_spec,
         )
 
-        original_pvc = self.core_v1.read_namespaced_persistent_volume_claim(name=pvc_name, namespace=namespace)
+        original_pvc = self.core_v1.read_namespaced_persistent_volume_claim(name=pvc_name, namespace=self.namespace)
         storage_class = original_pvc.spec.storage_class_name
 
         return SnapshotInfo(snapshot['metadata']['name'], None, storage_class)
 
-    def wait_for_snapshot(self, snapshot: SnapshotInfo, namespace="default"):
+    def wait_for_snapshots(self, snapshots: dict[str, SnapshotInfo]):
+        for snapshot in snapshots.values():
+            self.wait_for_snapshot(snapshot)
+
+    def wait_for_snapshot(self, snapshot: SnapshotInfo):
         group = "snapshot.storage.k8s.io"
         version = "v1"
 
         status = self.custom_api.get_namespaced_custom_object_status(group=group,
             version=version,
-            namespace=namespace,
+            namespace=self.namespace,
             plural="volumesnapshots", name=snapshot.name)
 
         if "status" in status and status['status']['readyToUse']:
@@ -135,7 +153,7 @@ class Backup:
                               field_selector=selector,
                               group=group,
                               version=version,
-                              namespace=namespace,
+                              namespace=self.namespace,
                               plural="volumesnapshots"):
             obj = event['object']
 
@@ -149,7 +167,10 @@ class Backup:
         print(f"Snapshot {snapshot.name} ready")
         snapshot.size = status['restoreSize']
 
-    def expose_snapshot(self, snapshot, namespace = "default") -> SnapshotInfo:
+    def expose_snapshots(self, snapshots : dict[str, SnapshotInfo]) -> dict[str, ExposedSnapshotPvc]:
+        return { name: self.expose_snapshot(snapshot) for name, snapshot in snapshots.items() }
+
+    def expose_snapshot(self, snapshot) -> ExposedSnapshotPvc:
         # Define the PVC object
         pvc = client.V1PersistentVolumeClaim(
             metadata=client.V1ObjectMeta(
@@ -174,8 +195,91 @@ class Backup:
         )
 
         response = self.core_v1.create_namespaced_persistent_volume_claim(
-            namespace=namespace,
+            namespace=self.namespace,
             body=pvc
         )
 
-        return response.metadata.name
+        return ExposedSnapshotPvc(response.metadata.name, snapshot)
+
+    def run_kopia(self, application: str, scratch_volume: str, snapshot_pvcs: dict[str, ExposedSnapshotPvc]):
+        image = "kopia/kopia:0.22.3"
+
+        # TODO Configure
+        command = [
+            "bash", "-c", """
+                kopia repository connect server \
+                       --url https://192.168.2.12:51515 \
+                       --override-username=default --override-hostname=default \
+                       --server-cert-fingerprint B67A3489638D39810FE72FC9A28BDE064E21B93E1B982FE383E0029F80435FCE \
+                        --disable-file-logging \
+                        --no-check-for-updates \
+                        --cache-directory /cache \
+                && kopia snapshot create /data --override-source=/k8s/__NAMESPACE__/__APPLICATION__/ --no-progress
+                """.replace("__APPLICATION__", application).replace("__NAMESPACE__", self.namespace)
+        ]
+
+        command = ["ls", "/data"]
+
+        # TODO --send-snapshot-report integrate with something like healthcheck.io
+
+        volume_mounts = [
+            client.V1VolumeMount(
+                name="scratch",
+                mount_path="/data/scratch",
+                read_only=True
+            ),
+            client.V1VolumeMount(
+                name="cache",
+                mount_path="/cache"
+            )
+        ]
+
+        # TODO Ensure cache/scratch is unique per app
+        volumes = [
+            client.V1Volume(name="scratch",
+                            persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
+                                claim_name=scratch_volume,
+                                read_only=True)),
+            client.V1Volume(name="cache",
+                            persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
+                                claim_name="kopia-cache")),
+        ]
+
+        for name, expose in snapshot_pvcs.items():
+            mount = client.V1VolumeMount(
+                name=name,
+                mount_path="/data/" + name,
+                read_only=True
+            )
+
+            source = client.V1PersistentVolumeClaimVolumeSource(claim_name=expose.pvc_name, read_only=True)
+            volume = client.V1Volume(name=name, persistent_volume_claim=source)
+
+            volume_mounts.append(mount)
+            volumes.append(volume)
+
+        security_context = client.V1PodSecurityContext(
+            run_as_group=0,
+            run_as_user=0,
+            run_as_non_root=False,
+            seccomp_profile=client.V1SeccompProfile(type="RuntimeDefault")
+        )
+
+        job = self.jobs.create_job_object(f'backup-kopia', image, command, volume_mounts, volumes,
+                                     security_context=security_context, env=[
+                client.V1EnvVar(name="KOPIA_PASSWORD", value_from=client.V1EnvVarSource(
+                    secret_key_ref=client.V1SecretKeySelector(key="password", name="kopia-repository"))),
+            ])
+        self.jobs.run_job(job)
+
+    def cleanup(self):
+        self.delete_owned_pvcs()
+        self.delete_owned_snapshots()
+        self.jobs.delete_owned_jobs()
+
+
+class BackupContext:
+    def __init__(self, backup: Backup, postgres: PostgresBackup, scratch_volume):
+        self.backup = backup
+        self.postgres = postgres
+        self.scratch_volume = scratch_volume
