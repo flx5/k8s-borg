@@ -10,6 +10,12 @@ class BackupDefinition:
     def prepare_snapshots(self, ctx: BackupContext) -> dict[str, SnapshotInfo]:
         pass
 
+    def scratch_volume(self) -> str | None:
+        return None
+
+    def application(self) -> str | None:
+        pass
+
 def get_current_namespace() -> str:
     ns_path = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
     if os.path.exists(ns_path):
@@ -25,8 +31,8 @@ def create_backup(definition: BackupDefinition):
     # Enter a context with an instance of the API kubernetes.client
     with client.ApiClient(configuration) as api_client:
         namespace = get_current_namespace()
-        scratch_volume = "backup-scratch"  # TODO Ensure scratch is cleaned?
-        application = "nextcloud"
+        scratch_volume = definition.scratch_volume()  # TODO Ensure scratch is cleaned?
+        application = definition.application()
 
         backup = Backup(api_client, application, namespace)
         postgres = PostgresBackup(api_client, application, namespace)
