@@ -121,4 +121,6 @@ class BackupJob:
     def delete_owned_jobs(self):
         self.batch_v1.delete_collection_namespaced_job(
             namespace=self.namespace,
-            label_selector=f'{BACKUP_OWNER_LABEL}={self.owner}')
+            label_selector=f'{BACKUP_OWNER_LABEL}={self.owner}',
+            propagation_policy='Foreground'
+        )
