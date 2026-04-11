@@ -234,7 +234,8 @@ class Backup:
                 """
         ]
 
-        command = ["ls", "/data"]
+        if os.environ.get('SKIP_KOPIA_UPLOAD') == 'true':
+            command = ["ls", "/data"]
 
         # TODO --send-snapshot-report integrate with something like healthcheck.io
 
