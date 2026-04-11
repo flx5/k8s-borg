@@ -1,12 +1,12 @@
 prepareBackupScript: |
   ctx.backup.exec_in_single_deployment_pod("nextcloud-internal",
                                          ["./occ", "maintenance:mode", "--on"])
-    try:
-        snapshots = ctx.backup.create_snapshots({"data": "nextcloud-data-new", "app": "nextcloud-app-new"})
-        ctx.postgres.dump_postgres("pg-nextcloud", scratch_volume=ctx.scratch_volume)
-        ctx.backup.wait_for_snapshots(snapshots)
-    finally:
-        ctx.backup.exec_in_single_deployment_pod("nextcloud-internal",
-                                             ["./occ", "maintenance:mode", "--off"])
+  try:
+      snapshots = ctx.backup.create_snapshots({"data": "nextcloud-data-new", "app": "nextcloud-app-new"})
+      ctx.postgres.dump_postgres("pg-nextcloud", scratch_volume=ctx.scratch_volume)
+      ctx.backup.wait_for_snapshots(snapshots)
+  finally:
+      ctx.backup.exec_in_single_deployment_pod("nextcloud-internal",
+                                           ["./occ", "maintenance:mode", "--off"])
 
-    return snapshots
+  return snapshots

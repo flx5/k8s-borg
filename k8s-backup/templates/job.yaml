@@ -8,7 +8,8 @@ spec:
       serviceAccountName: {{ include "k8s-backup.fullname" . }}
       containers:
       - name: backup
-        image: ghcr.io/flx5/k8s-borg/backup:main@sha256:7b4388102ba876efeaefa8b1591721166ba6ecc3b1a662782081e94adb45878e
+        # TODO Release helm chart with matching image tag
+        image: ghcr.io/flx5/k8s-borg/backup:main@sha256:a48498acb4e283571ed870f0f1ac857d6dd777fd1721eb898a05c0b2a2e15b3e
         command:
         - "python3"
         - -c
