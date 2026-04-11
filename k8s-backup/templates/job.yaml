@@ -9,7 +9,7 @@ spec:
       containers:
       - name: backup
         # TODO Release helm chart with matching image tag
-        image: ghcr.io/flx5/k8s-borg/backup:main@sha256:a48498acb4e283571ed870f0f1ac857d6dd777fd1721eb898a05c0b2a2e15b3e
+        image: ghcr.io/flx5/k8s-borg/backup:main@sha256:fefa6166b1dfe4427c7d56fb48823b90586a716ba46eaf13985a669f52dbcdf1
         command:
         - "python3"
         - -u
