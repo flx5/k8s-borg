@@ -1,3 +1,5 @@
+import os
+
 from kubernetes import client
 from kubernetes.client import CoreV1Api
 from kubernetes.stream import stream
@@ -204,18 +206,32 @@ class Backup:
     def run_kopia(self, application: str, scratch_volume: str, cache_volume: str, snapshot_pvcs: dict[str, ExposedSnapshotPvc]):
         image = "kopia/kopia:0.22.3"
 
-        # TODO Configure
+        repository = os.environ["REPOSITORY_URL"]
+        username = os.environ.get("REPOSITORY_USERNAME", "default")
+        password = os.environ.get("REPOSITORY_PASSWORD")
+        hostname = os.environ.get("REPOSITORY_HOSTNAME", "default")
+        server_fingerprint = os.environ.get("SERVER_FINGERPRINT")
+
+        args = [
+            "--disable-file-logging",
+            "--no-check-for-updates",
+            "--cache-directory", "/cache",
+            "--url", f'"{repository}"',
+            f"--override-username='{username}'",
+            f"--override-hostname='{hostname}'"
+        ]
+
+        if server_fingerprint is not None:
+            args.append("--server-cert-fingerprint")
+            args.append(server_fingerprint)
+
+        args = " ".join(args)
+
         command = [
-            "bash", "-c", """
-                kopia repository connect server \
-                       --url https://192.168.2.12:51515 \
-                       --override-username=default --override-hostname=default \
-                       --server-cert-fingerprint B67A3489638D39810FE72FC9A28BDE064E21B93E1B982FE383E0029F80435FCE \
-                        --disable-file-logging \
-                        --no-check-for-updates \
-                        --cache-directory /cache \
-                && kopia snapshot create /data --override-source=/k8s/__NAMESPACE__/__APPLICATION__/ --no-progress
-                """.replace("__APPLICATION__", application).replace("__NAMESPACE__", self.namespace)
+            "bash", "-c", f"""
+                kopia repository connect server {args}\
+                && kopia snapshot create /data --override-source=/k8s/{self.namespace}/{application}/ --no-progress
+                """
         ]
 
         command = ["ls", "/data"]
@@ -273,8 +289,7 @@ class Backup:
 
         job = self.jobs.create_job_object(f'backup-kopia', image, command, volume_mounts, volumes,
                                      security_context=security_context, env=[
-                client.V1EnvVar(name="KOPIA_PASSWORD", value_from=client.V1EnvVarSource(
-                    secret_key_ref=client.V1SecretKeySelector(key="password", name="kopia-repository"))),
+                client.V1EnvVar(name="KOPIA_PASSWORD", value=password),
             ])
         self.jobs.run_job(job)
 

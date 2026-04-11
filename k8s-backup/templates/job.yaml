@@ -10,6 +10,35 @@ spec:
       - name: backup
         # TODO Release helm chart with matching image tag
         image: ghcr.io/flx5/k8s-borg/backup:main@sha256:fefa6166b1dfe4427c7d56fb48823b90586a716ba46eaf13985a669f52dbcdf1
+        env:
+          - name: REPOSITORY_USERNAME
+            valueFrom:
+              secretKeyRef:
+                key: username
+                name: {{ .Values.repository.secret }}
+                optional: true
+          - name: REPOSITORY_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: password
+                name: {{ .Values.repository.secret }}
+          - name: REPOSITORY_HOSTNAME
+            valueFrom:
+              secretKeyRef:
+                key: hostname
+                name: {{ .Values.repository.secret }}
+                optional: true
+          - name: SERVER_FINGERPRINT
+            valueFrom:
+              secretKeyRef:
+                key: fingerprint
+                name: {{ .Values.repository.secret }}
+                optional: true
+          - name: REPOSITORY_URL
+            valueFrom:
+              secretKeyRef:
+                key: url
+                name: {{ .Values.repository.secret }}
         command:
         - "python3"
         - -u
