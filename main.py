@@ -13,6 +13,9 @@ class BackupDefinition:
     def scratch_volume(self) -> str | None:
         return None
 
+    def cache_volume(self) -> str | None:
+        return None
+
     def application(self) -> str | None:
         pass
 
@@ -40,5 +43,5 @@ def create_backup(definition: BackupDefinition):
         ctx = BackupContext(backup, postgres, scratch_volume)
         snapshots = definition.prepare_snapshots(ctx)
         exposes = backup.expose_snapshots(snapshots)
-        backup.run_kopia(application, scratch_volume, exposes)
+        backup.run_kopia(application, scratch_volume, definition.cache_volume(), exposes)
         backup.cleanup()

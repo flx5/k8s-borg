@@ -12,6 +12,7 @@ spec:
         image: ghcr.io/flx5/k8s-borg/backup:main@sha256:a48498acb4e283571ed870f0f1ac857d6dd777fd1721eb898a05c0b2a2e15b3e
         command:
         - "python3"
+        - -u
         - -c
         - |
           from backup import BackupContext, SnapshotInfo
@@ -24,6 +25,9 @@ spec:
 
             def scratch_volume(self) -> str | None:
                 return {{ if .Values.scratch.enabled }} {{ include "k8s-backup.scratchName" . | quote }} {{ else }} None {{ end }}
+        
+            def cache_volume(self) -> str | None:
+                return "{{ include "k8s-backup.fullname" . }}-cache"
         
             def application(self) -> str | None:
                 return {{ .Release.Name | quote }}

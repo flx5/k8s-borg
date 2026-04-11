@@ -3,6 +3,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ include "k8s-backup.scratchName" . }}
+  finalizers: []
 spec:
   accessModes:
     - ReadWriteMany

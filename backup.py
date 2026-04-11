@@ -201,7 +201,7 @@ class Backup:
 
         return ExposedSnapshotPvc(response.metadata.name, snapshot)
 
-    def run_kopia(self, application: str, scratch_volume: str, snapshot_pvcs: dict[str, ExposedSnapshotPvc]):
+    def run_kopia(self, application: str, scratch_volume: str, cache_volume: str, snapshot_pvcs: dict[str, ExposedSnapshotPvc]):
         image = "kopia/kopia:0.22.3"
 
         # TODO Configure
@@ -224,26 +224,32 @@ class Backup:
 
         volume_mounts = [
             client.V1VolumeMount(
-                name="scratch",
-                mount_path="/data/scratch",
-                read_only=True
-            ),
-            client.V1VolumeMount(
                 name="cache",
                 mount_path="/cache"
             )
         ]
 
-        # TODO Ensure cache/scratch is unique per app
         volumes = [
-            client.V1Volume(name="scratch",
-                            persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
-                                claim_name=scratch_volume,
-                                read_only=True)),
             client.V1Volume(name="cache",
                             persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
-                                claim_name="kopia-cache")),
+                                claim_name=cache_volume)),
         ]
+
+        if scratch_volume is not None:
+            volume_mounts.append(
+                client.V1VolumeMount(
+                    name="scratch",
+                    mount_path="/data/scratch",
+                    read_only=True
+                )
+            )
+
+            volumes.append(
+                client.V1Volume(name="scratch",
+                                persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
+                                    claim_name=scratch_volume,
+                                    read_only=True))
+            )
 
         for name, expose in snapshot_pvcs.items():
             mount = client.V1VolumeMount(
